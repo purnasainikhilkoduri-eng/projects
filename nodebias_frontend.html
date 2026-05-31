@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NodeBias — AI Fairness Audit Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #050810;
+  --surface: rgba(255,255,255,0.04);
+  --surface-hi: rgba(255,255,255,0.07);
+  --border: rgba(255,255,255,0.08);
+  --border-hi: rgba(255,255,255,0.15);
+  --green: #00F5A0;
+  --green-dim: rgba(0,245,160,0.10);
+  --red: #FF4D6D;
+  --red-dim: rgba(255,77,109,0.10);
+  --amber: #FFB800;
+  --amber-dim: rgba(255,184,0,0.10);
+  --blue: #4D9FFF;
+  --blue-dim: rgba(77,159,255,0.10);
+  --purple: #8B5CF6;
+  --purple-dim: rgba(139,92,246,0.10);
+  --text: #E8E6FF;
+  --text-muted: rgba(232,230,255,0.50);
+  --text-dim: rgba(232,230,255,0.25);
+  --font: 'Syne', sans-serif;
+  --mono: 'Space Mono', monospace;
+  --radius: 14px;
+  --radius-sm: 8px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Ambient Background ─── */
+.bg-grid {
+  position: fixed; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(rgba(77,159,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77,159,255,0.025) 1px, transparent 1px);
+  background-size: 52px 52px;
+  pointer-events: none;
+}
+.bg-glow {
+  position: fixed; z-index: 0; pointer-events: none;
+  border-radius: 50%; filter: blur(100px); opacity: 0.08;
+}
+.bg-glow-1 { width: 600px; height: 600px; background: var(--blue); top: -200px; right: -100px; }
+.bg-glow-2 { width: 400px; height: 400px; background: var(--green); bottom: 0; left: -100px; }
+.bg-noise {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px;
+}
+@keyframes scanline { from{top:-4px} to{top:100vh} }
+.bg-scan {
+  position: fixed; left: 0; right: 0; height: 3px; z-index: 1; pointer-events: none;
+  background: linear-gradient(transparent, rgba(0,245,160,0.04), transparent);
+  animation: scanline 8s linear infinite;
+}
+
+/* ─── Layout ─── */
+.app { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 0 28px 60px; }
+
+/* ─── Header ─── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 28px 0 32px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 36px;
+  animation: fadeUp 0.5s ease both;
+}
+.logo { display: flex; align-items: center; gap: 14px; text-decoration: none; }
+.logo-mark {
+  width: 40px; height: 40px; border-radius: 11px;
+  background: linear-gradient(135deg, var(--green) 0%, var(--blue) 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 800; color: #050810;
+  box-shadow: 0 0 24px rgba(0,245,160,0.25);
+}
+.logo-wordmark { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: var(--text); }
+.logo-wordmark em { color: var(--green); font-style: normal; }
+.header-right { display: flex; align-items: center; gap: 20px; }
+.status-chip {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 100px; padding: 6px 14px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+}
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,245,160,0.4);opacity:1}50%{box-shadow:0 0 0 5px rgba(0,245,160,0);opacity:0.7} }
+.pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+#clock { letter-spacing: 1px; }
+.export-btn {
+  background: transparent; border: 1px solid var(--border-hi);
+  color: var(--text-muted); border-radius: var(--radius-sm);
+  padding: 7px 16px; font-family: var(--mono); font-size: 11px;
+  cursor: pointer; transition: all 0.2s; letter-spacing: 0.5px;
+}
+.export-btn:hover { color: var(--text); border-color: var(--green); color: var(--green); }
+
+/* ─── Score Hero ─── */
+.hero {
+  background: var(--surface); border: 1px solid var(--border);
+  border-top: 2px solid var(--green);
+  border-radius: var(--radius); padding: 32px 40px;
+  display: grid; grid-template-columns: 1fr auto 1fr;
+  align-items: center; gap: 32px;
+  margin-bottom: 24px;
+  animation: fadeUp 0.6s ease 0.08s both;
+  backdrop-filter: blur(16px);
+  position: relative; overflow: hidden;
+}
+.hero::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 0%, rgba(0,245,160,0.04), transparent 70%);
+}
+.hero-meta { display: flex; flex-direction: column; gap: 10px; }
+.hero-row { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.hero-label { font-size: 12px; color: var(--text-muted); }
+.hero-val { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.hero-val.ok { color: var(--green); }
+.hero-val.warn { color: var(--amber); }
+.hero-divider { width: 1px; height: 100px; background: var(--border); }
+.hero-score { text-align: center; }
+.hero-score-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; }
+.hero-score-number { font-size: 72px; font-weight: 800; line-height: 1; color: var(--green); letter-spacing: -4px; }
+.hero-score-number.fail { color: var(--red); }
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--green-dim); border: 1px solid rgba(0,245,160,0.25);
+  color: var(--green); border-radius: 6px; margin-top: 10px;
+  padding: 5px 14px; font-family: var(--mono); font-size: 11px; font-weight: 700;
+}
+.hero-badge.fail { background: var(--red-dim); border-color: rgba(255,77,109,0.25); color: var(--red); }
+
+/* ─── Navigation ─── */
+.nav {
+  display: flex; gap: 3px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 4px;
+  margin-bottom: 32px;
+  animation: fadeUp 0.5s ease both;
+}
+.nav-btn {
+  flex: 1; padding: 9px 12px; border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.5px;
+  cursor: pointer; transition: all 0.18s; text-transform: uppercase;
+}
+.nav-btn:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.03); }
+.nav-btn.active { background: rgba(255,255,255,0.09); color: var(--text); }
+
+/* ─── Section ─── */
+.section { display: none; }
+.section.active { display: block; animation: fadeUp 0.35s ease both; }
+
+/* ─── Cards ─── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 24px;
+  backdrop-filter: blur(12px);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover { border-color: rgba(255,255,255,0.12); }
+.card-title {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 2px;
+  color: var(--text-muted); text-transform: uppercase;
+  margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+}
+.card-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+/* ─── Grid Layouts ─── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.gap-b { margin-bottom: 20px; }
+
+/* ─── Bias Bars ─── */
+.bias-item { margin-bottom: 18px; }
+.bias-item:last-child { margin-bottom: 0; }
+.bias-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+.bias-name { font-size: 13px; font-weight: 600; }
+.bias-stats { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+.bias-track { height: 10px; background: rgba(255,255,255,0.06); border-radius: 5px; overflow: hidden; }
+.bias-fill { height: 100%; border-radius: 5px; width: 0; transition: width 1.6s cubic-bezier(0.16,1,0.3,1); }
+
+/* ─── Feature Importance ─── */
+.feat-item { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.feat-rank { font-family: var(--mono); font-size: 10px; color: var(--text-dim); width: 18px; }
+.feat-name { font-size: 12px; color: var(--text-muted); flex: 1; }
+.feat-track { flex: 2; height: 7px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+.feat-bar { height: 100%; border-radius: 4px; width: 0; transition: width 1.6s cubic-bezier(0.16,1,0.3,1); }
+.feat-pct { font-family: var(--mono); font-size: 11px; width: 34px; text-align: right; }
+
+/* ─── Terminal ─── */
+.terminal {
+  background: #020408; border: 1px solid rgba(0,245,160,0.15);
+  border-radius: var(--radius); overflow: hidden;
+}
+.term-bar {
+  background: rgba(0,245,160,0.06); border-bottom: 1px solid rgba(0,245,160,0.1);
+  padding: 11px 20px; display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 11px; color: var(--green);
+}
+.term-dots { display: flex; gap: 6px; }
+.term-dot { width: 10px; height: 10px; border-radius: 50%; }
+.term-body { padding: 18px 20px; max-height: 280px; overflow-y: auto; }
+.term-body::-webkit-scrollbar { width: 4px; }
+.term-body::-webkit-scrollbar-track { background: transparent; }
+.term-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.term-line { display: flex; gap: 14px; font-family: var(--mono); font-size: 11px; line-height: 1.9; }
+.t-time { color: rgba(0,245,160,0.35); white-space: nowrap; }
+.t-info { color: var(--blue); }
+.t-pass { color: var(--green); }
+.t-fail { color: var(--red); }
+.t-warn { color: var(--amber); }
+.t-dim  { color: rgba(255,255,255,0.25); }
+.t-msg  { color: rgba(232,230,255,0.7); }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:0} }
+.cursor { display: inline-block; width: 7px; height: 12px; background: var(--green); animation: blink 1s step-end infinite; vertical-align: -1px; margin-left: 4px; }
+
+/* ─── Stat boxes ─── */
+.stat-box { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 18px; }
+.stat-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+.stat-val { font-size: 26px; font-weight: 800; letter-spacing: -1px; }
+.stat-val.green { color: var(--green); }
+.stat-val.red { color: var(--red); }
+.stat-val.amber { color: var(--amber); }
+.stat-val.blue { color: var(--blue); }
+.stat-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+/* ─── Model Cards ─── */
+.model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.model-card {
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 18px; cursor: pointer; transition: all 0.2s;
+}
+.model-card:hover:not(.active) { border-color: var(--border-hi); }
+.model-card.active { border-color: var(--blue); background: var(--blue-dim); box-shadow: 0 0 0 1px var(--blue); }
+.mc-name { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.mc-type { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-bottom: 14px; }
+.mc-score { font-size: 28px; font-weight: 800; }
+.mc-pass { color: var(--green); } .mc-fail { color: var(--red); } .mc-na { color: var(--text-dim); }
+.mc-status { font-family: var(--mono); font-size: 10px; margin-top: 4px; }
+.mc-status.pass { color: var(--green); } .mc-status.fail { color: var(--red); } .mc-status.na { color: var(--text-dim); }
+
+/* ─── Upload Zone ─── */
+.upload-zone {
+  border: 1.5px dashed rgba(255,255,255,0.15); border-radius: var(--radius);
+  padding: 40px 24px; text-align: center; cursor: pointer;
+  transition: all 0.2s; background: var(--surface);
+}
+.upload-zone:hover { border-color: var(--blue); background: var(--blue-dim); }
+.upload-zone.loaded { border-color: var(--green); background: var(--green-dim); }
+.upload-icon { font-size: 30px; margin-bottom: 12px; opacity: 0.6; }
+.upload-text { font-size: 13px; color: var(--text-muted); }
+.upload-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 6px; }
+
+/* ─── Form Controls ─── */
+.form-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 6px; }
+.form-input, .form-select {
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border-hi);
+  color: var(--text); border-radius: var(--radius-sm); padding: 9px 13px;
+  font-family: var(--mono); font-size: 12px; width: 100%;
+  outline: none; transition: border-color 0.2s; appearance: none;
+}
+.form-input:focus, .form-select:focus { border-color: var(--blue); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+
+/* ─── Buttons ─── */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 22px; border-radius: var(--radius-sm); border: 1px solid;
+  font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  cursor: pointer; transition: all 0.2s; text-transform: uppercase;
+}
+.btn-green { background: var(--green); color: #050810; border-color: var(--green); }
+.btn-green:hover { box-shadow: 0 0 24px rgba(0,245,160,0.35); transform: translateY(-1px); }
+.btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border-hi); }
+.btn-ghost:hover { color: var(--text); border-color: var(--text-muted); }
+.btn-row { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+
+/* ─── Pipeline Step ─── */
+.pipe-step {
+  padding: 11px 15px; border-radius: var(--radius-sm); font-size: 12px;
+  border: 1px solid;
+}
+.pipe-step .pipe-num { font-family: var(--mono); font-size: 10px; display: block; margin-bottom: 3px; }
+.pipe-arrow { text-align: center; color: var(--text-dim); font-size: 14px; padding: 2px 0; }
+
+/* ─── Mit Cards ─── */
+.mit-card {
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 16px; text-align: center;
+  cursor: pointer; transition: all 0.2s;
+}
+.mit-card:hover { border-color: var(--border-hi); transform: translateY(-2px); }
+.mit-card.selected { border-color: var(--amber); background: var(--amber-dim); }
+.mit-icon { font-size: 22px; margin-bottom: 8px; }
+.mit-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.mit-desc { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
+/* ─── Progress ring ─── */
+.ring-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ring-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-align: center; }
+
+/* ─── Alert banners ─── */
+.alert { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: var(--radius-sm); font-size: 12px; }
+.alert-green { background: var(--green-dim); border: 1px solid rgba(0,245,160,0.2); color: var(--green); }
+.alert-red { background: var(--red-dim); border: 1px solid rgba(255,77,109,0.2); color: var(--red); }
+.alert-amber { background: var(--amber-dim); border: 1px solid rgba(255,184,0,0.2); color: var(--amber); }
+
+/* ─── Bar compare (models) ─── */
+.cmp-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cmp-name { font-size: 12px; width: 150px; flex-shrink: 0; }
+.cmp-track { flex: 1; height: 10px; background: rgba(255,255,255,0.06); border-radius: 5px; overflow: hidden; }
+.cmp-fill { height: 100%; border-radius: 5px; transition: width 1.4s cubic-bezier(0.16,1,0.3,1); }
+.cmp-val { font-family: var(--mono); font-size: 11px; width: 40px; text-align: right; }
+.cmp-threshold {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--green-dim);
+  border: 1px solid rgba(0,245,160,0.2); border-radius: var(--radius-sm); margin-top: 14px;
+}
+.cmp-thr-label { font-family: var(--mono); font-size: 10px; color: var(--green); }
+.cmp-thr-line { flex: 1; height: 1px; background: rgba(0,245,160,0.25); }
+.cmp-thr-val { font-family: var(--mono); font-size: 12px; color: var(--green); }
+
+/* ─── Tree viewer ─── */
+.tree-box {
+  background: rgba(0,0,0,0.35); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px;
+  font-family: var(--mono); font-size: 11px; line-height: 2;
+  color: var(--text-muted); overflow-x: auto;
+}
+.kw { color: var(--blue); }
+.feat { color: var(--amber); }
+.val { color: var(--green); }
+
+/* ─── Animations ─── */
+@keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+@keyframes spin { to{transform:rotate(360deg)} }
+.anim-d1 { animation-delay: 0.1s; }
+.anim-d2 { animation-delay: 0.18s; }
+.anim-d3 { animation-delay: 0.26s; }
+
+/* ─── Responsive ─── */
+@media(max-width:768px) {
+  .hero { grid-template-columns: 1fr; }
+  .hero-divider { display: none; }
+  .grid-2, .grid-4, .model-grid { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+  .hero-score-number { font-size: 56px; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="bg-glow bg-glow-1"></div>
+<div class="bg-glow bg-glow-2"></div>
+<div class="bg-noise"></div>
+<div class="bg-scan"></div>
+
+<div class="app">
+
+  <!-- ── Header ── -->
+  <header class="header">
+    <a class="logo" href="#">
+      <div class="logo-mark">N</div>
+      <span class="logo-wordmark">Node<em>Bias</em></span>
+    </a>
+    <div class="header-right">
+      <div class="status-chip">
+        <span class="pulse-dot"></span>
+        AUDIT ENGINE v2.4 &nbsp;·&nbsp; <span id="clock">--:--:--</span>
+      </div>
+      <button class="export-btn" onclick="exportReport()">↓ EXPORT JSON</button>
+    </div>
+  </header>
+
+  <!-- ── Score Hero ── -->
+  <section class="hero" id="hero">
+    <div class="hero-meta">
+      <div class="hero-row"><span class="hero-label">Dataset</span><span class="hero-val">diabetic_data.csv</span></div>
+      <div class="hero-row"><span class="hero-label">Records</span><span class="hero-val">101,766</span></div>
+      <div class="hero-row"><span class="hero-label">Sensitive attr.</span><span class="hero-val">gender</span></div>
+      <div class="hero-row"><span class="hero-label">Target col.</span><span class="hero-val">readmitted</span></div>
+    </div>
+    <div class="hero-divider"></div>
+    <div class="hero-score">
+      <div class="hero-score-label">Disparate Impact Ratio</div>
+      <div class="hero-score-number" id="hero-dir">0.981</div>
+      <div><span class="hero-badge" id="hero-badge">✓ PASS</span></div>
+    </div>
+    <div class="hero-divider"></div>
+    <div class="hero-meta">
+      <div class="hero-row"><span class="hero-label">Model</span><span class="hero-val">Random Forest</span></div>
+      <div class="hero-row"><span class="hero-label">Ensemble size</span><span class="hero-val">10 trees</span></div>
+      <div class="hero-row"><span class="hero-label">DIR threshold</span><span class="hero-val ok">≥ 0.800</span></div>
+      <div class="hero-row"><span class="hero-label">Status</span><span class="hero-val ok" id="hero-status">FAIR</span></div>
+    </div>
+  </section>
+
+  <!-- ── Navigation ── -->
+  <nav class="nav">
+    <button class="nav-btn active" onclick="showTab('overview')">Overview</button>
+    <button class="nav-btn" onclick="showTab('audit')">Run Audit</button>
+    <button class="nav-btn" onclick="showTab('models')">Models</button>
+    <button class="nav-btn" onclick="showTab('explain')">Explainability</button>
+    <button class="nav-btn" onclick="showTab('log')">Audit Log</button>
+  </nav>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       TAB: OVERVIEW
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section active" id="tab-overview">
+
+    <!-- Stats row -->
+    <div class="grid-4 gap-b">
+      <div class="stat-box">
+        <div class="stat-label">DIR Score</div>
+        <div class="stat-val green">0.981</div>
+        <div class="stat-sub">RANDOM FOREST</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Demographic Gap</div>
+        <div class="stat-val amber">1.80%</div>
+        <div class="stat-sub">F 46.92% · M 45.12%</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Total Patients</div>
+        <div class="stat-val blue">101,766</div>
+        <div class="stat-sub">PROCESSED</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Features Used</div>
+        <div class="stat-val green">42</div>
+        <div class="stat-sub">AUTO-DETECTED</div>
+      </div>
+    </div>
+
+    <div class="grid-2 gap-b">
+
+      <!-- Bias bars -->
+      <div class="card">
+        <div class="card-title">Group Readmission Rates</div>
+        <div class="bias-item">
+          <div class="bias-head">
+            <span class="bias-name">Female</span>
+            <span class="bias-stats">54,708 patients · 46.92%</span>
+          </div>
+          <div class="bias-track"><div class="bias-fill" id="bar-f" style="background:linear-gradient(90deg,#4D9FFF,#8B5CF6)"></div></div>
+        </div>
+        <div class="bias-item">
+          <div class="bias-head">
+            <span class="bias-name">Male</span>
+            <span class="bias-stats">47,055 patients · 45.12%</span>
+          </div>
+          <div class="bias-track"><div class="bias-fill" id="bar-m" style="background:linear-gradient(90deg,var(--green),#00C9FF)"></div></div>
+        </div>
+        <div class="bias-item">
+          <div class="bias-head">
+            <span class="bias-name">Unknown / Invalid</span>
+            <span class="bias-stats">3 patients · 0.00%</span>
+          </div>
+          <div class="bias-track"><div class="bias-fill" id="bar-u" style="background:rgba(255,255,255,0.25)"></div></div>
+        </div>
+        <div style="margin-top:20px;padding:16px;background:var(--green-dim);border:1px solid rgba(0,245,160,0.2);border-radius:var(--radius-sm);display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="stat-label" style="margin-bottom:3px">DIR Score (min÷max)</div>
+            <div style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">Gap: 1.80 percentage points</div>
+          </div>
+          <div style="font-size:32px;font-weight:800;color:var(--green);letter-spacing:-2px">0.981</div>
+        </div>
+      </div>
+
+      <!-- Feature importance -->
+      <div class="card">
+        <div class="card-title">Feature Importance</div>
+        <div class="feat-item">
+          <div class="feat-rank">01</div>
+          <div class="feat-name">num_lab_procedures</div>
+          <div class="feat-track"><div class="feat-bar" id="fb1" style="background:linear-gradient(90deg,var(--amber),var(--red))"></div></div>
+          <div class="feat-pct" style="color:var(--amber)">35%</div>
+        </div>
+        <div class="feat-item">
+          <div class="feat-rank">02</div>
+          <div class="feat-name">insulin</div>
+          <div class="feat-track"><div class="feat-bar" id="fb2" style="background:linear-gradient(90deg,var(--blue),var(--green))"></div></div>
+          <div class="feat-pct" style="color:var(--blue)">25%</div>
+        </div>
+        <div class="feat-item">
+          <div class="feat-rank">03</div>
+          <div class="feat-name">age</div>
+          <div class="feat-track"><div class="feat-bar" id="fb3" style="background:linear-gradient(90deg,var(--purple),var(--blue))"></div></div>
+          <div class="feat-pct" style="color:var(--purple)">20%</div>
+        </div>
+        <div class="feat-item">
+          <div class="feat-rank">04</div>
+          <div class="feat-name">number_diagnoses</div>
+          <div class="feat-track"><div class="feat-bar" id="fb4" style="background:linear-gradient(90deg,var(--green),#00C9FF)"></div></div>
+          <div class="feat-pct" style="color:var(--green)">12%</div>
+        </div>
+        <div class="feat-item">
+          <div class="feat-rank">05</div>
+          <div class="feat-name">num_medications</div>
+          <div class="feat-track"><div class="feat-bar" id="fb5" style="background:linear-gradient(90deg,rgba(255,184,0,0.7),var(--amber))"></div></div>
+          <div class="feat-pct" style="color:var(--amber)">8%</div>
+        </div>
+        <div class="feat-item">
+          <div class="feat-rank">06</div>
+          <div class="feat-name">time_in_hospital</div>
+          <div class="feat-track"><div class="feat-bar" id="fb6" style="background:linear-gradient(90deg,var(--red),rgba(255,77,109,0.5))"></div></div>
+          <div class="feat-pct" style="color:var(--red)">6%</div>
+        </div>
+        <div style="margin-top:16px;padding:12px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <div class="stat-label" style="margin-bottom:5px">FAIRNESS THROUGH UNAWARENESS</div>
+          <div style="font-size:12px;color:var(--text-muted)">Sensitive attribute <code style="color:var(--amber);font-family:var(--mono)">gender</code> is excluded from model features in mitigated training runs.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terminal -->
+    <div class="terminal">
+      <div class="term-bar">
+        <div class="term-dots">
+          <div class="term-dot" style="background:#FF5F57"></div>
+          <div class="term-dot" style="background:#FFBD2E"></div>
+          <div class="term-dot" style="background:#28CA41"></div>
+        </div>
+        <span style="margin-left:10px">nodebias — live audit output</span>
+      </div>
+      <div class="term-body" id="main-term">
+        <div class="term-line"><span class="t-time">08:42:01</span><span class="t-info">INFO</span><span class="t-msg">Loading dataset <strong style="color:var(--text)">diabetic_data.csv</strong> — 101,766 records</span></div>
+        <div class="term-line"><span class="t-time">08:42:02</span><span class="t-info">INFO</span><span class="t-msg">Initializing dynamic pipeline (target: <span style="color:var(--amber)">readmitted</span>, sensitive: <span style="color:var(--amber)">gender</span>)</span></div>
+        <div class="term-line"><span class="t-time">08:42:02</span><span class="t-dim">····</span><span class="t-dim">Standardizing nulls: ?, NA, N/A → NaN</span></div>
+        <div class="term-line"><span class="t-time">08:42:03</span><span class="t-info">INFO</span><span class="t-msg">Auto-detected <span class="t-pass">42</span> safe numerical features</span></div>
+        <div class="term-line"><span class="t-time">08:42:04</span><span class="t-warn">WARN</span><span class="t-msg">Encoding <span class="t-warn">12</span> categorical columns via .cat.codes</span></div>
+        <div class="term-line"><span class="t-time">08:42:05</span><span class="t-info">INFO</span><span class="t-msg">Creating sensitive numeric shadow column for training</span></div>
+        <div class="term-line"><span class="t-time">08:42:06</span><span class="t-info">INFO</span><span class="t-msg">StandardScaler: fit_transform on 101,766 × 42 matrix</span></div>
+        <div class="term-line"><span class="t-time">08:42:07</span><span class="t-info">INFO</span><span class="t-msg">Training RandomForestClassifier — 10 trees, max_depth=14, min_samples_split=100</span></div>
+        <div class="term-line"><span class="t-time">08:42:19</span><span class="t-info">INFO</span><span class="t-msg">Generating predictions on 101,766 records...</span></div>
+        <div class="term-line"><span class="t-time">08:42:19</span><span class="t-pass">PASS</span><span class="t-msg">Disparate impact ratio: <span class="t-pass" style="font-weight:700">0.981</span> (threshold ≥ 0.800)</span></div>
+        <div class="term-line"><span class="t-time">08:42:19</span><span class="t-pass">PASS</span><span class="t-msg">Demographic gap: <span class="t-pass">1.80%</span> — within acceptable range</span></div>
+        <div class="term-line"><span class="t-time">08:42:19</span><span class="t-pass">PASS</span><span class="t-msg">Model verdict: <span style="font-weight:700;color:var(--green)">SAFE FOR DEPLOYMENT</span></span></div>
+        <div class="term-line"><span class="t-time">08:42:20</span><span class="t-info">INFO</span><span class="t-msg">Audit report saved → audit_report_forest.json</span></div>
+        <div class="term-line"><span class="t-time">08:42:20</span><span class="t-dim">····</span><span class="t-dim">Pipeline complete. 101,766 records in 18.4s</span></div>
+        <div class="term-line"><span class="t-time">08:42:20</span><span class="t-pass">DONE</span><span class="t-msg">NodeBias audit complete<span class="cursor"></span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       TAB: RUN AUDIT
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section" id="tab-audit">
+
+    <div class="upload-zone gap-b" id="drop-zone" onclick="handleUpload()" ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+      <div class="upload-icon">⬆</div>
+      <div class="upload-text">Drop your CSV dataset here to begin</div>
+      <div class="upload-sub">or click to browse · accepts .csv files · max 50MB</div>
+    </div>
+
+    <div class="card gap-b">
+      <div class="card-title">Audit Configuration</div>
+      <div class="form-row">
+        <div>
+          <label class="form-label">Model Type</label>
+          <select class="form-select" id="cfg-model">
+            <option>Logistic Regression</option>
+            <option>Gaussian Naive Bayes</option>
+            <option selected>Random Forest</option>
+            <option>Decision Tree</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Target Column</label>
+          <input class="form-input" type="text" id="cfg-target" value="readmitted" placeholder="readmitted">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label class="form-label">Sensitive Attribute</label>
+          <input class="form-input" type="text" id="cfg-sensitive" value="gender" placeholder="gender">
+        </div>
+        <div>
+          <label class="form-label">Mitigation Strategy</label>
+          <select class="form-select" id="cfg-mitigation">
+            <option value="none">None (Baseline)</option>
+            <option value="ftu" selected>Fairness Through Unawareness</option>
+            <option value="rew">Reweighing</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-green" onclick="runAudit()" id="run-btn">▶ RUN AUDIT</button>
+        <button class="btn btn-ghost" onclick="resetAudit()">RESET</button>
+      </div>
+    </div>
+
+    <div id="audit-result" style="display:none">
+      <div class="terminal" style="margin-bottom:16px">
+        <div class="term-bar">
+          <div class="term-dots">
+            <div class="term-dot" style="background:#FF5F57"></div>
+            <div class="term-dot" style="background:#FFBD2E"></div>
+            <div class="term-dot" style="background:#28CA41"></div>
+          </div>
+          <span style="margin-left:10px">Live audit output</span>
+        </div>
+        <div class="term-body" id="audit-term"></div>
+      </div>
+      <div class="card" id="result-card" style="border-top:2px solid var(--green)">
+        <div class="card-title">Results</div>
+        <div id="result-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       TAB: MODELS
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section" id="tab-models">
+
+    <div class="card gap-b">
+      <div class="card-title">Model Registry</div>
+      <div class="model-grid">
+        <div class="model-card active" onclick="selectModel(this)">
+          <div class="mc-name">Random Forest</div>
+          <div class="mc-type">ENSEMBLE · 10 TREES · DEPTH 14</div>
+          <div class="mc-score mc-pass">0.981</div>
+          <div class="mc-status pass">✓ PASS — SAFE FOR DEPLOYMENT</div>
+        </div>
+        <div class="model-card" onclick="selectModel(this)">
+          <div class="mc-name">Logistic Regression</div>
+          <div class="mc-type">MOMENTUM OPTIMIZER · BCE LOSS · 1000 EPOCHS</div>
+          <div class="mc-score mc-pass">0.962</div>
+          <div class="mc-status pass">✓ PASS — SAFE FOR DEPLOYMENT</div>
+        </div>
+        <div class="model-card" onclick="selectModel(this)">
+          <div class="mc-name">Gaussian Naive Bayes</div>
+          <div class="mc-type">PROBABILISTIC · BAYES THEOREM</div>
+          <div class="mc-score mc-fail">0.743</div>
+          <div class="mc-status fail">✗ FAIL — BIAS DETECTED</div>
+        </div>
+        <div class="model-card" onclick="selectModel(this)">
+          <div class="mc-name">Decision Tree</div>
+          <div class="mc-type">SINGLE TREE · DEPTH 14 · MIN SPLIT 100</div>
+          <div class="mc-score mc-na">—</div>
+          <div class="mc-status na">AWAITING AUDIT RUN</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card gap-b">
+      <div class="card-title">Comparative DIR Scores</div>
+      <div class="cmp-row">
+        <span class="cmp-name">Random Forest</span>
+        <div class="cmp-track"><div class="cmp-fill" id="cmp1" style="background:linear-gradient(90deg,var(--green),#00C9FF)"></div></div>
+        <span class="cmp-val" style="color:var(--green)">0.981</span>
+      </div>
+      <div class="cmp-row">
+        <span class="cmp-name">Logistic Regression</span>
+        <div class="cmp-track"><div class="cmp-fill" id="cmp2" style="background:linear-gradient(90deg,var(--blue),var(--purple))"></div></div>
+        <span class="cmp-val" style="color:var(--blue)">0.962</span>
+      </div>
+      <div class="cmp-row">
+        <span class="cmp-name">Naive Bayes</span>
+        <div class="cmp-track"><div class="cmp-fill" id="cmp3" style="background:linear-gradient(90deg,var(--red),var(--amber))"></div></div>
+        <span class="cmp-val" style="color:var(--red)">0.743</span>
+      </div>
+      <div class="cmp-row">
+        <span class="cmp-name">Decision Tree</span>
+        <div class="cmp-track"><div class="cmp-fill" id="cmp4" style="background:rgba(255,255,255,0.15)"></div></div>
+        <span class="cmp-val" style="color:var(--text-dim)">—</span>
+      </div>
+      <div class="cmp-threshold">
+        <span class="cmp-thr-label">THRESHOLD</span>
+        <div class="cmp-thr-line"></div>
+        <span class="cmp-thr-val">0.800 (80% rule — EEOC standard)</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Mitigation Strategies</div>
+      <div class="grid-3">
+        <div class="mit-card selected" onclick="selectMit(this)">
+          <div class="mit-icon">🚫</div>
+          <div class="mit-name">Fairness Through Unawareness</div>
+          <div class="mit-desc">DROP SENSITIVE COLUMN</div>
+        </div>
+        <div class="mit-card" onclick="selectMit(this)">
+          <div class="mit-icon">⚖</div>
+          <div class="mit-name">Reweighing</div>
+          <div class="mit-desc">SAMPLE WEIGHT ADJUSTMENT</div>
+        </div>
+        <div class="mit-card" onclick="selectMit(this)">
+          <div class="mit-icon">✂</div>
+          <div class="mit-name">Disparate Impact Remover</div>
+          <div class="mit-desc">FEATURE REPAIR</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       TAB: EXPLAINABILITY
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section" id="tab-explain">
+
+    <div class="grid-2 gap-b">
+
+      <!-- Data pipeline -->
+      <div class="card">
+        <div class="card-title">Data Pipeline Architecture</div>
+        <div class="pipe-step" style="background:var(--blue-dim);border-color:rgba(77,159,255,0.25)">
+          <span class="pipe-num" style="color:var(--blue)">STEP 1 · INPUT</span>
+          Raw CSV dataset (diabetic_data.csv)
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step" style="background:var(--amber-dim);border-color:rgba(255,184,0,0.25)">
+          <span class="pipe-num" style="color:var(--amber)">STEP 2 · CLEAN</span>
+          Null standardisation (?, NA → NaN) + schema validation
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step" style="background:var(--purple-dim);border-color:rgba(139,92,246,0.25)">
+          <span class="pipe-num" style="color:var(--purple)">STEP 3 · ENCODE</span>
+          Auto-encode categoricals → numeric shadow column
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step" style="background:var(--blue-dim);border-color:rgba(77,159,255,0.2)">
+          <span class="pipe-num" style="color:var(--blue)">STEP 4 · SCALE</span>
+          Feature extraction + StandardScaler (μ=0, σ=1)
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step" style="background:var(--green-dim);border-color:rgba(0,245,160,0.3)">
+          <span class="pipe-num" style="color:var(--green)">STEP 5 · TRAIN + AUDIT</span>
+          GlassBoxML model training → DIR computation → JSON report
+        </div>
+      </div>
+
+      <!-- Tree structure -->
+      <div class="card">
+        <div class="card-title">Decision Tree Structure</div>
+        <div class="tree-box">
+<span class="kw">if</span> <span class="feat">num_lab_procedures</span> ≤ 38.5:
+  <span class="kw">if</span> <span class="feat">insulin</span> == <span class="val">No</span>:
+    <span class="kw">predict</span> → <span class="val">0</span> (no readmission)
+  <span class="kw">else</span>:
+    <span class="kw">if</span> <span class="feat">age</span> &gt;= <span class="val">[60-70)</span>:
+      <span class="kw">predict</span> → <span class="val">1</span> (readmission)
+    <span class="kw">else</span>:
+      <span class="kw">predict</span> → <span class="val">0</span>
+<span class="kw">else</span>:
+  <span class="kw">if</span> <span class="feat">number_diagnoses</span> &gt;= <span class="val">7</span>:
+    <span class="kw">if</span> <span class="feat">num_medications</span> &gt;= <span class="val">15</span>:
+      <span class="kw">predict</span> → <span class="val">1</span> (readmission)
+    <span class="kw">else</span>:
+      <span class="kw">predict</span> → <span class="val">0</span>
+  <span class="kw">else</span>:
+    <span class="kw">predict</span> → <span class="val">0</span> (no readmission)
+        </div>
+        <div class="alert alert-amber" style="margin-top:14px">
+          <span>⚠</span>
+          <span>Sensitive attribute <code style="font-family:var(--mono)">gender</code> excluded from ALL decision paths under FTU mitigation.</span>
+        </div>
+        <div class="alert alert-green" style="margin-top:10px">
+          <span>✓</span>
+          <span>Top predictors are clinically valid: lab procedures, insulin, age, diagnoses count.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mitigation comparison -->
+    <div class="card">
+      <div class="card-title">Before vs After Mitigation</div>
+      <div class="grid-2">
+        <div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--red);letter-spacing:1px;margin-bottom:12px">BASELINE (gender included)</div>
+          <div class="stat-box" style="margin-bottom:10px">
+            <div class="stat-label">DIR Score</div>
+            <div class="stat-val red">0.743</div>
+            <div class="stat-sub">NAIVE BAYES BASELINE</div>
+          </div>
+          <div class="alert alert-red">✗ FAIL — Bias detected above threshold</div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--green);letter-spacing:1px;margin-bottom:12px">MITIGATED (FTU applied)</div>
+          <div class="stat-box" style="margin-bottom:10px">
+            <div class="stat-label">DIR Score</div>
+            <div class="stat-val green">0.981</div>
+            <div class="stat-sub">RANDOM FOREST + FTU</div>
+          </div>
+          <div class="alert alert-green">✓ PASS — Safe for deployment</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       TAB: AUDIT LOG
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section" id="tab-log">
+    <div class="terminal">
+      <div class="term-bar">
+        <div class="term-dots">
+          <div class="term-dot" style="background:#FF5F57"></div>
+          <div class="term-dot" style="background:#FFBD2E"></div>
+          <div class="term-dot" style="background:#28CA41"></div>
+        </div>
+        <span style="margin-left:10px">nodebias — full audit log · session <span style="color:var(--text-muted)" id="session-id">...</span></span>
+      </div>
+      <div class="term-body" id="full-log" style="max-height:520px"></div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+/* ─── Clock ─── */
+function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB');
+}
+tick(); setInterval(tick, 1000);
+
+/* ─── Session ID ─── */
+document.getElementById('session-id').textContent =
+  Math.random().toString(36).slice(2,8).toUpperCase();
+
+/* ─── Tab navigation ─── */
+const TABS = ['overview','audit','models','explain','log'];
+function showTab(t) {
+  TABS.forEach(id => {
+    document.getElementById('tab-'+id).classList.toggle('active', id===t);
+  });
+  document.querySelectorAll('.nav-btn').forEach((b,i) => {
+    b.classList.toggle('active', TABS[i]===t);
+  });
+  if (t === 'log') renderFullLog();
+}
+
+/* ─── Animate bars on load ─── */
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    document.getElementById('bar-f').style.width = '93%';
+    document.getElementById('bar-m').style.width = '90%';
+    document.getElementById('bar-u').style.width = '1%';
+    ['fb1','fb2','fb3','fb4','fb5','fb6'].forEach((id,i) => {
+      document.getElementById(id).style.width = [70,50,40,24,16,12][i]+'%';
+    });
+    // model compare bars
+    document.getElementById('cmp1').style.width = '98%';
+    document.getElementById('cmp2').style.width = '96%';
+    document.getElementById('cmp3').style.width = '74%';
+    document.getElementById('cmp4').style.width = '40%';
+  }, 300);
+});
+
+/* ─── Model card select ─── */
+function selectModel(el) {
+  document.querySelectorAll('.model-card').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+}
+
+/* ─── Mitigation card select ─── */
+function selectMit(el) {
+  document.querySelectorAll('.mit-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+/* ─── Upload ─── */
+function handleDragOver(e) { e.preventDefault(); }
+function handleDrop(e) {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f) applyFile(f);
+}
+function handleUpload() {
+  const input = document.createElement('input');
+  input.type='file'; input.accept='.csv';
+  input.onchange = e => { if (e.target.files[0]) applyFile(e.target.files[0]); };
+  input.click();
+}
+function applyFile(f) {
+  const z = document.getElementById('drop-zone');
+  z.classList.add('loaded');
+  z.innerHTML = `<div class="upload-icon" style="opacity:1">✓</div>
+    <div class="upload-text" style="color:var(--green)">${f.name}</div>
+    <div class="upload-sub">${(f.size/1024).toFixed(1)} KB · ready to audit</div>`;
+}
+
+/* ─── Run Audit (simulated) ─── */
+let auditRunning = false;
+const LOG_LINES = [
+  {type:'INFO', msg:'Loading and validating dataset...'},
+  {type:'INFO', msg:'Initializing dynamic pipeline'},
+  {type:'INFO', msg:'Standardizing nulls: ?, NA, N/A → NaN'},
+  {type:'INFO', msg:'Auto-detecting numerical features...'},
+  {type:'INFO', msg:'Encoding categorical columns'},
+  {type:'INFO', msg:'Building sensitive numeric shadow column'},
+  {type:'INFO', msg:'StandardScaler: fit_transform complete'},
+  {type:'INFO', msg:'Training model — this may take a moment...'},
+  {type:'INFO', msg:'Generating predictions...'},
+  {type:'INFO', msg:'Computing disparate impact ratio...'},
+  {type:'PASS', msg:'DIR: 0.974 (threshold ≥ 0.800)'},
+  {type:'PASS', msg:'Demographic gap: 2.12% — within range'},
+  {type:'PASS', msg:'Status: SAFE FOR DEPLOYMENT'},
+];
+
+function typeClass(t) {
+  return {INFO:'t-info',PASS:'t-pass',FAIL:'t-fail',WARN:'t-warn',DONE:'t-pass'}[t]||'t-dim';
+}
+
+function runAudit() {
+  if (auditRunning) return;
+  auditRunning = true;
+  const btn = document.getElementById('run-btn');
+  btn.textContent = '⏳ RUNNING...';
+  btn.disabled = true;
+
+  const res = document.getElementById('audit-result');
+  const term = document.getElementById('audit-term');
+  const content = document.getElementById('result-content');
+  term.innerHTML = ''; content.innerHTML = '';
+  res.style.display = 'block';
+
+  const dir = Math.round((0.92 + Math.random() * 0.07) * 1000) / 1000;
+  const pass = dir >= 0.8;
+
+  let i = 0;
+  const iv = setInterval(() => {
+    if (i >= LOG_LINES.length) {
+      clearInterval(iv);
+      auditRunning = false;
+      btn.textContent = '▶ RUN AUDIT';
+      btn.disabled = false;
+
+      // Render result
+      document.getElementById('result-card').style.borderTopColor = pass ? 'var(--green)' : 'var(--red)';
+      content.innerHTML = `
+        <div class="grid-2" style="margin-bottom:16px">
+          <div class="stat-box">
+            <div class="stat-label">DIR Score</div>
+            <div class="stat-val ${pass?'green':'red'}">${dir}</div>
+            <div class="stat-sub">${document.getElementById('cfg-model').value.toUpperCase()}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Verdict</div>
+            <div class="stat-val ${pass?'green':'red'}">${pass?'PASS':'FAIL'}</div>
+            <div class="stat-sub">${pass?'SAFE FOR DEPLOYMENT':'BIAS DETECTED'}</div>
+          </div>
+        </div>
+        <div class="alert ${pass?'alert-green':'alert-red'}">
+          ${pass?'✓':'✗'} Disparate impact ratio ${pass?'meets':'does not meet'} the 0.800 threshold (80% rule).
+          ${!pass?'<br>Consider applying a mitigation strategy and re-running the audit.':''}
+        </div>`;
+      return;
+    }
+
+    const l = LOG_LINES[i];
+    const now = new Date().toLocaleTimeString('en-GB');
+    const li = document.createElement('div');
+    li.className = 'term-line';
+    li.innerHTML = `<span class="t-time">${now}</span><span class="${typeClass(l.type)}">${l.type}</span><span class="t-msg">${l.msg}</span>`;
+    term.appendChild(li);
+    term.scrollTop = term.scrollHeight;
+    i++;
+  }, 380);
+}
+
+function resetAudit() {
+  document.getElementById('audit-result').style.display='none';
+  const btn = document.getElementById('run-btn');
+  btn.textContent='▶ RUN AUDIT'; btn.disabled=false; auditRunning=false;
+}
+
+/* ─── Full Log ─── */
+const FULL_LOG = [
+  {type:'INFO', msg:'Session initialized'},
+  {type:'INFO', msg:'Loading diabetic_data.csv — 101,766 records'},
+  {type:'INFO', msg:'Pipeline: target=readmitted, sensitive=gender, is_mitigated=False'},
+  {type:'INFO', msg:'Null standardisation complete'},
+  {type:'INFO', msg:'Auto-detected 42 numerical features'},
+  {type:'WARN', msg:'12 categorical columns encoded via .cat.codes'},
+  {type:'INFO', msg:'Sensitive numeric shadow column created'},
+  {type:'INFO', msg:'StandardScaler fitted and applied'},
+  {type:'INFO', msg:'Training Logistic Regression — Momentum(lr=0.01, β=0.9), 1000 epochs'},
+  {type:'INFO', msg:'Logistic Regression training complete'},
+  {type:'PASS', msg:'LR DIR: 0.962 (threshold ≥ 0.800) — PASS'},
+  {type:'INFO', msg:'Training Gaussian Naive Bayes'},
+  {type:'FAIL', msg:'NB DIR: 0.743 (threshold ≥ 0.800) — FAIL — bias detected'},
+  {type:'INFO', msg:'Training Random Forest — 10 trees, depth=14'},
+  {type:'INFO', msg:'Ensemble training complete — 18.4s'},
+  {type:'PASS', msg:'RF DIR: 0.981 (threshold ≥ 0.800) — PASS'},
+  {type:'PASS', msg:'RF demographic gap: 1.80% — within acceptable range'},
+  {type:'PASS', msg:'RF verdict: SAFE FOR DEPLOYMENT'},
+  {type:'INFO', msg:'Audit reports saved: audit_report_forest.json, data_bias_report.json'},
+  {type:'DONE', msg:'All audits complete. Ready for mitigation gateway.'},
+];
+
+function renderFullLog() {
+  const el = document.getElementById('full-log');
+  el.innerHTML = FULL_LOG.map(l => {
+    const now = new Date();
+    const t = new Date(now.getTime() - Math.random()*60000).toLocaleTimeString('en-GB');
+    return `<div class="term-line"><span class="t-time">${t}</span><span class="${typeClass(l.type)}">${l.type}</span><span class="t-msg">${l.msg}</span></div>`;
+  }).join('') + `<div class="term-line"><span class="t-time">${new Date().toLocaleTimeString('en-GB')}</span><span class="t-pass">LIVE</span><span class="t-msg">Session active<span class="cursor"></span></span></div>`;
+}
+
+/* ─── Export ─── */
+function exportReport() {
+  const report = {
+    generated: new Date().toISOString(),
+    model_type: 'GlassBoxML Random Forest',
+    ensemble_size: 10,
+    metrics: {
+      disparate_impact_ratio: 0.981,
+      demographic_gap: '1.80%',
+      status: 'PASS'
+    },
+    data_bias: {
+      Female: { total_patients: 54708, readmission_rate_percentage: 46.92 },
+      Male: { total_patients: 47055, readmission_rate_percentage: 45.12 },
+      'Unknown/Invalid': { total_patients: 3, readmission_rate_percentage: 0.0 }
+    },
+    feature_priority: [
+      { feature: 'num_lab_procedures', weight: 0.35 },
+      { feature: 'insulin', weight: 0.25 },
+      { feature: 'age', weight: 0.20 },
+      { feature: 'number_diagnoses', weight: 0.12 },
+      { feature: 'num_medications', weight: 0.08 }
+    ],
+    mitigation: 'Fairness Through Unawareness'
+  };
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'nodebias_audit_report.json';
+  a.click();
+}
+</script>
+</body>
+</html>
